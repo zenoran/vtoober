@@ -24,9 +24,37 @@ class LLM(StatelessLLMInterface):
         - **kwargs: Additional arguments passed to Llama constructor
         """
         logger.info(f"Initializing llama cpp with model path: {model_path}")
+        logger.info(f"Raw kwargs received: {kwargs}")
+        logger.info("🚨🚨🚨 NICK - THIS IS THE NEW CODE VERSION - LOOK FOR GPU LAYERS! 🚨🚨🚨")
+        
+        # Print each kwarg to see what's missing
+        for key, value in kwargs.items():
+            logger.info(f"  kwargs['{key}'] = {value} (type: {type(value)})")
+        
         self.model_path = model_path
+        
+        # Build parameters exactly like the working llama_cpp_client.py
+        model_load_params = {
+            "model_path": model_path,
+            "n_gpu_layers": kwargs.get("n_gpu_layers", -1),
+            "n_ctx": kwargs.get("n_ctx", 4096),
+            # "chat_format": "chatml",  # This was missing!
+            "verbose": False,  # Use False like working client
+        }
+        
+        # Add optional parameters if present
+        if "n_batch" in kwargs:
+            model_load_params["n_batch"] = kwargs["n_batch"]
+        if "main_gpu" in kwargs:
+            model_load_params["main_gpu"] = kwargs["main_gpu"]
+        if "tensor_split" in kwargs and kwargs["tensor_split"] is not None:
+            model_load_params["tensor_split"] = kwargs["tensor_split"]
+        
+        # Log what we're actually passing to llama-cpp-python
+        logger.info(f"llama-cpp-python parameters: {model_load_params}")
+        
         try:
-            self.llm = Llama(model_path=model_path, **kwargs)
+            self.llm = Llama(**model_load_params)
         except Exception as e:
             logger.critical(f"Failed to initialize Llama model: {e}")
             raise

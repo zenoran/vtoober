@@ -165,12 +165,12 @@ if __name__ == "__main__":
     url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
     output_dir = "./models"
 
-    # Try local extraction first.
+    # 先尝试本地解压
     local_result = check_and_extract_local_file(url, output_dir)
 
-    # Download if not available locally.
+    # 本地没有则下载
     if local_result is None:
-        logger.info("Local archive not found. Starting download...")
+        logger.info("未找到本地压缩包，开始下载...")
         download_and_extract(url, output_dir)
     else:
-        logger.info("Extraction completed using local file.")
+        logger.info("已通过本地文件完成解压")

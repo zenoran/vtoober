@@ -5,8 +5,6 @@ from loguru import logger
 from fastapi import WebSocket
 import numpy as np
 
-from ..agent.output_types import AudioOutput, SentenceOutput
-
 from .conversation_utils import (
     create_batch_input,
     process_agent_output,
@@ -35,7 +33,6 @@ async def process_group_conversation(
     user_input: Union[str, np.ndarray],
     images: Optional[List[Dict[str, Any]]] = None,
     session_emoji: str = np.random.choice(EMOJI_LIST),
-    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Process group conversation
 
@@ -48,7 +45,6 @@ async def process_group_conversation(
         user_input: Text or audio input from user
         images: Optional list of image data
         session_emoji: Emoji identifier for the conversation
-        metadata: Optional metadata for special processing flags
     """
     # Create TTSTaskManager for each member
     tts_managers = {uid: TTSTaskManager() for uid in group_members}
@@ -87,36 +83,22 @@ async def process_group_conversation(
             initiator_client_uid=initiator_client_uid,
         )
 
-        # Check if we should skip storing this input to history
-        skip_history = metadata and metadata.get("skip_history", False)
-
-        if not skip_history:
-            for member_uid in group_members:
-                member_context = client_contexts[member_uid]
-                store_message(
-                    conf_uid=member_context.character_config.conf_uid,
-                    history_uid=member_context.history_uid,
-                    role="human",
-                    content=input_text,
-                    name=human_name,
-                )
-        else:
-            logger.debug("Skipping storing proactive speak input to group history")
+        for member_uid in group_members:
+            member_context = client_contexts[member_uid]
+            store_message(
+                conf_uid=member_context.character_config.conf_uid,
+                history_uid=member_context.history_uid,
+                role="human",
+                content=input_text,
+                name=human_name,
+            )
 
         state.conversation_history = [f"{human_name}: {input_text}"]
 
-        is_first_responder = False
         # Main conversation loop
         while state.group_queue:
             try:
                 current_member_uid = state.group_queue.pop(0)
-
-                # Only pass metadata to the first responder
-                current_metadata = None
-                if is_first_responder:
-                    current_metadata = metadata
-                    is_first_responder = False
-
                 await handle_group_member_turn(
                     current_member_uid=current_member_uid,
                     state=state,
@@ -126,7 +108,6 @@ async def process_group_conversation(
                     group_members=group_members,
                     images=images,
                     tts_manager=tts_managers[current_member_uid],
-                    metadata=current_metadata,
                 )
             except Exception as e:
                 logger.error(f"Error in group member turn: {e}")
@@ -147,7 +128,7 @@ async def process_group_conversation(
         raise
     finally:
         # Cleanup all TTS managers
-        for tts_manager in tts_managers.values():
+        for uid, tts_manager in tts_managers.items():
             cleanup_conversation(tts_manager, session_emoji)
         # Clean up
         GroupConversationState.remove_state(state.group_id)
@@ -232,7 +213,6 @@ async def handle_group_member_turn(
     group_members: List[str],
     images: Optional[List[Dict[str, Any]]],
     tts_manager: TTSTaskManager,
-    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Handle a single group member's conversation turn"""
     # Update current speaker before processing
@@ -247,10 +227,7 @@ async def handle_group_member_turn(
     new_context = "\n".join(new_messages) if new_messages else ""
 
     batch_input = create_batch_input(
-        input_text=new_context,
-        images=images,
-        from_name="Human",
-        metadata=metadata,
+        input_text=new_context, images=images, from_name="Human"
     )
 
     logger.info(
@@ -263,8 +240,6 @@ async def handle_group_member_turn(
         batch_input=batch_input,
         current_ws_send=current_ws_send,
         tts_manager=tts_manager,
-        broadcast_func=broadcast_func,
-        group_members=group_members,
     )
 
     if tts_manager.task_list:
@@ -299,8 +274,6 @@ async def handle_group_member_turn(
                 name=context.character_config.character_name,
                 avatar=context.character_config.avatar,
             )
-        else:
-            logger.debug("Skipping storing AI response to history (proactive speak)")
 
     state.memory_index[current_member_uid] = len(state.conversation_history)
     state.group_queue.append(current_member_uid)
@@ -343,52 +316,27 @@ async def process_member_response(
     batch_input: Any,
     current_ws_send: WebSocketSend,
     tts_manager: TTSTaskManager,
-    broadcast_func: Optional[BroadcastFunc] = None,
-    group_members: Optional[List[str]] = None,
 ) -> str:
-    """Process group member's response, handling text/audio and tool status events."""
+    """Process group member's response"""
     full_response = ""
 
     try:
-        # agent.chat now yields Union[SentenceOutput, Dict[str, Any]]
-        agent_output_stream = context.agent_engine.chat(batch_input)
+        agent_output = context.agent_engine.chat(batch_input)
 
-        async for output_item in agent_output_stream:
-            if (
-                isinstance(output_item, dict)
-                and output_item.get("type") == "tool_call_status"
-            ):
-                if broadcast_func and group_members:
-                    logger.debug(f"Broadcasting tool status update: {output_item}")
-                    output_item["name"] = context.character_config.character_name
-                    await broadcast_func(group_members, output_item)
-                else:
-                    logger.warning(
-                        "Cannot broadcast tool status: broadcast_func or group_members missing."
-                    )
-            elif isinstance(output_item, (SentenceOutput, AudioOutput)):
-                # Handle SentenceOutput or AudioOutput: Send to current user, broadcast audio later if needed
-                response_part = await process_agent_output(
-                    output=output_item,
-                    character_config=context.character_config,
-                    live2d_model=context.live2d_model,
-                    tts_engine=context.tts_engine,
-                    websocket_send=current_ws_send,  # Send TTS/display text directly to speaker's client
-                    tts_manager=tts_manager,
-                    translate_engine=context.translate_engine,
-                )
-                full_response += response_part  # Accumulate text response
-            else:
-                logger.warning(
-                    f"Received unexpected item type from agent chat stream: {type(output_item)}"
-                )
+        async for output in agent_output:
+            response_part = await process_agent_output(
+                output=output,
+                character_config=context.character_config,
+                live2d_model=context.live2d_model,
+                tts_engine=context.tts_engine,
+                websocket_send=current_ws_send,
+                tts_manager=tts_manager,
+                translate_engine=context.translate_engine,
+            )
+            full_response += response_part
 
     except Exception as e:
-        logger.exception(f"Error processing group member response stream: {e}")
-        await current_ws_send(
-            json.dumps(
-                {"type": "error", "message": f"Error processing response: {str(e)}"}
-            )
-        )
+        logger.error(f"Error processing member response: {e}")
+        raise
 
     return full_response

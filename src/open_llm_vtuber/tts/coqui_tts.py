@@ -1,8 +1,20 @@
 import os
 from typing import Optional
-from TTS.api import TTS
-from loguru import logger
 import torch
+from loguru import logger
+
+# Fix for PyTorch 2.6+ weights_only default change
+_original_torch_load = torch.load
+
+def _torch_load_with_weights_only_false(*args, **kwargs):
+    # Set weights_only=False by default for compatibility with older models
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+torch.load = _torch_load_with_weights_only_false
+
+from TTS.api import TTS
 from .tts_interface import TTSInterface
 
 
@@ -44,13 +56,33 @@ class TTSEngine(TTSInterface):
                 # Use default model if none specified
                 self.tts = TTS().to(self.device)
 
-            self.speaker_wav = speaker_wav
+            # Handle speaker_wav path - convert relative to absolute if needed
+            if speaker_wav:
+                if not os.path.isabs(speaker_wav):
+                    # Convert relative path to absolute path
+                    self.speaker_wav = os.path.abspath(speaker_wav)
+                else:
+                    self.speaker_wav = speaker_wav
+                
+                # Check if speaker file exists
+                if not os.path.exists(self.speaker_wav):
+                    logger.warning(f"Speaker wav file not found: {self.speaker_wav}")
+                    self.speaker_wav = None
+                else:
+                    logger.info(f"Using speaker wav file: {self.speaker_wav}")
+            else:
+                self.speaker_wav = None
+                
             self.language = language
 
             # Check if model is multi-speaker
-            self.is_multi_speaker = (
-                hasattr(self.tts, "speakers") and self.tts.speakers is not None
-            )
+            # XTTS v2 does not populate self.tts.speakers, so check model_name as well
+            if model_name and "xtts" in model_name.lower():
+                self.is_multi_speaker = True
+            else:
+                self.is_multi_speaker = (
+                    hasattr(self.tts, "speakers") and self.tts.speakers is not None
+                )
 
         except Exception as e:
             raise RuntimeError(f"Failed to initialize CoquiTTS model: {str(e)}")
@@ -70,9 +102,12 @@ class TTSEngine(TTSInterface):
             # Generate output path
             output_path = self.generate_cache_file_name(file_name_no_ext, "wav")
 
+            # Debug: log multi-speaker and speaker_wav state
+            logger.info(f"[DEBUG] is_multi_speaker={self.is_multi_speaker}, speaker_wav={self.speaker_wav!r}")
             # Generate speech based on speaker mode
             if self.is_multi_speaker and self.speaker_wav:
                 # Multi-speaker mode with voice cloning
+                logger.info(f"Calling tts_to_file with: text={text[:30]!r}..., speaker_wav={self.speaker_wav!r}, language={self.language!r}, file_path={output_path!r}")
                 self.tts.tts_to_file(
                     text=text,
                     speaker_wav=self.speaker_wav,

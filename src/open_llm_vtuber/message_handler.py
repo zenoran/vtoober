@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 import asyncio
 from loguru import logger
 from collections import defaultdict
@@ -6,31 +6,25 @@ from collections import defaultdict
 
 class MessageHandler:
     def __init__(self):
-        self._response_events: Dict[str, Dict[Tuple[str, Optional[str]], asyncio.Event]] = defaultdict(dict)
-        self._response_data: Dict[str, Dict[Tuple[str, Optional[str]], dict]] = defaultdict(dict)
+        self._response_events: Dict[str, Dict[str, asyncio.Event]] = defaultdict(dict)
+        self._response_data: Dict[str, Dict[str, dict]] = defaultdict(dict)
 
     async def wait_for_response(
-        self,
-        client_uid: str,
-        response_type: str,
-        request_id: str | None = None,
-        timeout: float | None = None,
+        self, client_uid: str, response_type: str, timeout: float | None = None
     ) -> Optional[dict]:
         """
-        Wait for a response of specific type and optional request_id from a client.
+        Wait for a response of specific type from a client.
 
         Args:
             client_uid: Client identifier
             response_type: Type of response to wait for
-            request_id: Optional identifier for the specific request
             timeout: Optional timeout in seconds. If None, wait indefinitely
 
         Returns:
             Optional[dict]: Response data if received, None if timeout
         """
         event = asyncio.Event()
-        response_key = (response_type, request_id)
-        self._response_events[client_uid][response_key] = event
+        self._response_events[client_uid][response_type] = event
 
         try:
             if timeout is not None:
@@ -40,36 +34,31 @@ class MessageHandler:
                 # Wait indefinitely
                 await event.wait()
 
-            return self._response_data[client_uid].pop(response_key, None)
+            return self._response_data[client_uid].pop(response_type, None)
         except asyncio.TimeoutError:
-            logger.warning(
-                f"Timeout waiting for {response_type} (ID: {request_id}) from {client_uid}"
-            )
+            logger.warning(f"Timeout waiting for {response_type} from {client_uid}")
             return None
         finally:
-            self._response_events[client_uid].pop(response_key, None)
+            self._response_events[client_uid].pop(response_type, None)
 
     def handle_message(self, client_uid: str, message: dict) -> None:
         """
-        Process an incoming message, potentially matching a response event waiting.
+        Process an incoming message with a response event waiting.
 
         Args:
             client_uid: Client identifier
-            message: Message data dictionary, expected to contain 'type' and optionally 'request_id'
+            message: Message data dictionary
         """
         msg_type = message.get("type")
-        request_id = message.get("request_id")
         if not msg_type:
             return
 
-        response_key = (msg_type, request_id)
-
         if (
             client_uid in self._response_events
-            and response_key in self._response_events[client_uid]
+            and msg_type in self._response_events[client_uid]
         ):
-            self._response_data[client_uid][response_key] = message
-            self._response_events[client_uid][response_key].set()
+            self._response_data[client_uid][msg_type] = message
+            self._response_events[client_uid][msg_type].set()
 
     def cleanup_client(self, client_uid: str) -> None:
         """
