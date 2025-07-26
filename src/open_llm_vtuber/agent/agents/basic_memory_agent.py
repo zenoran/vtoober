@@ -244,6 +244,8 @@ class BasicMemoryAgent(AgentInterface):
         messages = self._memory.copy()
         user_content = []
         text_prompt = self._to_text_prompt(input_data)
+        has_images = False
+        
         if text_prompt:
             user_content.append({"type": "text", "text": text_prompt})
 
@@ -260,6 +262,7 @@ class BasicMemoryAgent(AgentInterface):
                         }
                     )
                     image_added = True
+                    has_images = True
                 else:
                     logger.error(
                         f"Invalid image data format: {type(img_data.data)}. Skipping image."
@@ -271,7 +274,14 @@ class BasicMemoryAgent(AgentInterface):
                 )
 
         if user_content:
-            user_message = {"role": "user", "content": user_content}
+            # Use simple string content for text-only messages (better compatibility)
+            # Use multimodal format only when images are present
+            if has_images or len(user_content) > 1:
+                user_message = {"role": "user", "content": user_content}
+            else:
+                # Simple text-only message
+                user_message = {"role": "user", "content": text_prompt}
+            
             messages.append(user_message)
 
             skip_memory = False
@@ -587,7 +597,7 @@ class BasicMemoryAgent(AgentInterface):
         @display_processor()
         @actions_extractor(self._live2d_model)
         @sentence_divider(
-            faster_first_response=self._faster_first_response,
+            faster_first_response=False,  # Disable comma splitting for Azure TTS
             segment_method=self._segment_method,
             valid_tags=["think"],
         )

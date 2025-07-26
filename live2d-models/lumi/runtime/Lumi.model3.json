@@ -1,0 +1,47 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Lumi.moc3",
+		"Textures": [
+			"Lumi.8192/texture_00.png",
+			"Lumi.8192/texture_01.png",
+			"Lumi.8192/texture_02.png"
+		],
+		"Physics": "Lumi.physics3.json",
+		"DisplayInfo": "Lumi.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "neutral",
+				"File": "SWEAT.exp3.json"
+			},
+			{
+				"Name": "angry",
+				"File": "ANGRY.exp3.json"
+			},
+			{
+				"Name": "sad",
+				"File": "TEARS.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "SMILE.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		}
+	],
+	"HitAreas": []
+}

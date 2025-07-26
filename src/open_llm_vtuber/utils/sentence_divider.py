@@ -136,8 +136,8 @@ def comma_splitter(text: str) -> Tuple[str, str]:
     for comma in COMMAS:
         if comma in text:
             split_text = text.split(comma, 1)
-            # Return first part with the comma
-            return split_text[0].strip() + comma, split_text[1].strip()
+            # Return first part with the comma, preserve space after comma
+            return split_text[0].strip() + comma, split_text[1]  # Don't strip the second part
     return text, ""
 
 
@@ -201,11 +201,11 @@ def segment_text_by_regex(text: str) -> Tuple[List[str], str]:
 
         # Skip if sentence ends with abbreviation
         if any(potential_sentence.endswith(abbrev) for abbrev in ABBREVIATIONS):
-            remaining_text = remaining_text[end_pos:].lstrip()
+            remaining_text = remaining_text[end_pos:]  # Don't strip leading space
             continue
 
         complete_sentences.append(potential_sentence)
-        remaining_text = remaining_text[end_pos:].lstrip()
+        remaining_text = remaining_text[end_pos:]  # Don't strip leading space
 
     return complete_sentences, remaining_text
 
@@ -498,7 +498,7 @@ class SentenceDivider:
                     sentence, remaining = comma_splitter(self._buffer)
                     if sentence.strip():
                         yield SentenceWithTags(
-                            text=sentence.strip(),
+                            text=sentence,  # Don't strip to preserve spaces
                             tags=current_tags or [TagInfo("", TagState.NONE)],
                         )
                         self._buffer = remaining
@@ -508,18 +508,20 @@ class SentenceDivider:
 
                 # Process normal sentences based on end punctuation
                 if contains_end_punctuation(self._buffer):
-                    sentences, remaining = self._segment_text(self._buffer)
-                    if sentences:  # Only process if segmentation yielded sentences
-                        self._buffer = remaining
-                        self._is_first_sentence = False
-                        processed_something = True
-                        for sentence in sentences:
-                            if sentence.strip():
-                                yield SentenceWithTags(
-                                    text=sentence.strip(),
-                                    tags=current_tags or [TagInfo("", TagState.NONE)],
-                                )
-                        continue  # Restart processing loop
+                    # Only split if buffer has reasonable length (reduce frequent splitting)
+                    if len(self._buffer.strip()) > 30:  # Minimum 30 characters
+                        sentences, remaining = self._segment_text(self._buffer)
+                        if sentences:  # Only process if segmentation yielded sentences
+                            self._buffer = remaining
+                            self._is_first_sentence = False
+                            processed_something = True
+                            for sentence in sentences:
+                                if sentence.strip():
+                                    yield SentenceWithTags(
+                                        text=sentence,  # Don't strip to preserve spaces
+                                        tags=current_tags or [TagInfo("", TagState.NONE)],
+                                    )
+                            continue  # Restart processing loop
 
             # If we reached here without processing anything, break the loop
             if not processed_something:

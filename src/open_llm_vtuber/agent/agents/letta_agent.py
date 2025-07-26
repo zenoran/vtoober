@@ -42,7 +42,7 @@ class LettaAgent(AgentInterface):
             display_processor()(
                 actions_extractor(self._live2d_model)(
                     sentence_divider(
-                        faster_first_response=self._faster_first_response,
+                        faster_first_response=False,  # Disable comma splitting for Azure TTS
                         segment_method=self._segment_method,
                         valid_tags=["think"],
                     )(self.chat)

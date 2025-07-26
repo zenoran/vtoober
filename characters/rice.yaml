@@ -1,6 +1,6 @@
 character_config:
   conf_name: "rice"
-  conf_uid: "rice_001"
+  conf_uid: "rice"
   live2d_model_name: "rice"
   character_name: "Rice"
   avatar: "rice.png"
